@@ -8,27 +8,76 @@
     <property name="basedir" value="${phing.dir}" />
     <property name="appdir"  value="${basedir}/app" />
     <property name="logdir"  value="${basedir}/build/logs" />
+    <property name="builddir" value="${basedir}/build"/>
 
     <!-- Build -->
     <target name="build"
-        depends="clean,prepare,prepare-caketest,caketest,phpcs,phpcpd,phpmd,phpdoc"/>
+        depends="clean,prepare,lint,phploc,pdepend,prepare-caketest,caketest,phpcs,phpcpd,phpmd,phpdoc"/>
 
     <!-- Build for local. Intended for usage on the command line before committing. -->
     <target name="build-local"
-        depends="clean,prepare,caketest-local,phpcs-local,phpcpd-local,phpmd-local"/>
+        depends="clean,prepare,lint,phploc,pdepend,caketest-local,phpcs-local,phpcpd-local,phpmd-local"/>
 
     <!-- Clean up -->
     <target name="clean" description="Cleanup build artifacts">
-        <delete dir="${logdir}"/>
-        <delete dir="${basedir}/build/coverage"/>
-        <delete dir="${basedir}/build/phpdoc"/>
+        <delete dir="${builddir}/api"/>
+        <delete dir="${builddir}/code-browser"/>
+        <delete dir="${builddir}/coverage"/>
+        <delete dir="${builddir}/logs"/>
+        <delete dir="${builddir}/pdepend"/>
     </target>
 
     <!-- Prepare -->
     <target name="prepare" depends="clean" description="Prepare for build">
-        <mkdir dir="${logdir}"/>
-        <mkdir dir="${basedir}/build/coverage"/>
-        <mkdir dir="${basedir}/build/phpdoc"/>
+        <mkdir dir="${builddir}/api"/>
+        <mkdir dir="${builddir}/code-browser"/>
+        <mkdir dir="${builddir}/coverage"/>
+        <mkdir dir="${builddir}/logs"/>
+        <mkdir dir="${builddir}/pdepend"/>
+    </target>
+
+     <target name="lint">
+        <phplint>
+            <fileset dir="${appdir}">
+                <include name="**/*.php" />
+                <exclude name="webroot/**" />
+                <exclude name="Test/**" />
+            </fileset>
+        </phplint>
+    </target>
+
+     <target name="phploc" description="Measure project size using PHPLOC">
+        <phploc
+            reportType="csv"
+            reportName="phploc"
+            reportDirectory="${builddir}/logs/">
+            <fileset dir="${appdir}">
+              <include name="**/*.php" />
+              <exclude name="**/Plugin/**" />
+              <exclude name="**/Vendor/**" />
+            </fileset>
+        </phploc>
+    </target>
+
+   <target name="pdepend" description="Calculate software metrics using PHP_Depend">
+        <phpdepend>
+            <fileset dir="${appdir}">
+                <include name="**/*.php" />
+                <include name="**/*.cpt" />
+                <exclude name="**/Config/Schema/**" />
+                <exclude name="**/Config/Migration/**" />
+                <exclude name="**/Plugin/**" />
+                <exclude name="**/Vendor/**" />
+                <exclude name="**/webroot/**" />
+            </fileset>
+            <logger type="jdepend-xml"
+                outfile="${builddir}/logs/jdepend.xml"/>
+            <logger type="jdepend-chart"
+                outfile="${builddir}/pdepend/dependencies.svg"/>
+            <logger type="overview-pyramid"
+                outfile="${builddir}/pdepend/overview-pyramid.svg"/>
+            <analyzer type="coderank-mode" value="method"/>
+        </phpdepend>
     </target>
 
     <!-- Prepare CakePHP unit test -->
@@ -42,7 +91,7 @@
 
     <!-- CakePHP unit test with PHPUnit -->
     <target name="caketest" description="Run CakePHP unit tests with PHPUnit">
-        <exec dir="${basedir}" executable="${basedir}/bin/cake" output="${logdir}/caketest.log">
+        <exec dir="${appdir}" executable="Console/cake" output="${logdir}/caketest.log">
             <arg line="test" />
             <arg line="--configuration=${basedir}/phpunit.xml" />
             <arg line="--log-junit=${logdir}/phpunit.xml" />
@@ -53,7 +102,7 @@
         </exec>
     </target>
     <target name="caketest-local" description="Run CakePHP unit tests with PHPUnit and print human readable output.">
-        <exec dir="${basedir}" executable="${basedir}/bin/cake" output="${logdir}/caketest.log">
+        <exec dir="${appdir}" executable="Console/cake" output="${logdir}/caketest.log">
             <arg line="test" />
             <arg line="--configuration=${basedir}/phpunit-coverage-text.xml" />
             <arg line="app" />
@@ -63,72 +112,112 @@
 
     <!-- PHPCodeSniffer -->
     <target name="phpcs" description="Find coding standard violations using PHP_CodeSniffer.">
-        <exec dir="${basedir}" executable="phpcs" output="${logdir}/phpcs.log">
-            <arg line="--standard=${basedir}/phpcs.xml" />
-            <arg line="--report=checkstyle" />
-            <arg line="--report-file=${logdir}/phpcs.xml" />
-            <arg line="${appdir}" />
-        </exec>
+        <phpcodesniffer
+            standard="${basedir}/phpcs.xml"
+            showSniffs="true"
+            showWarnings="true"
+            encoding="utf8">
+            <fileset dir="${appdir}">
+                <include name="**/*.php"/>
+                <exclude name="**/Config/Schema/**" />
+                <exclude name="**/Config/Migration/**" />
+                <exclude name="**/Plugin/**" />
+                <exclude name="**/Vendor/**" />
+                <exclude name="**/webroot/**" />
+            </fileset>
+            <formatter type="checkstyle" outfile="${builddir}/logs/checkstyle.xml"/>
+        </phpcodesniffer>
     </target>
     <target name="phpcs-local" description="Find coding standard violations using PHP_CodeSniffer and print human readable output.">
-        <exec dir="${basedir}" executable="phpcs" output="${logdir}/phpcs.log">
-            <arg line="--standard=${basedir}/phpcs.xml" />
-            <arg line="${appdir}" />
-        </exec>
+        <phpcodesniffer
+            standard="${basedir}/phpcs.xml"
+            showSniffs="true"
+            showWarnings="true"
+            encoding="utf8">
+            <fileset dir="${appdir}">
+                <include name="**/*.php"/>
+                <exclude name="**/Config/Schema/**" />
+                <exclude name="**/Config/Migration/**" />
+                <exclude name="**/Plugin/**" />
+                <exclude name="**/Vendor/**" />
+                <exclude name="**/webroot/**" />
+            </fileset>
+            <formatter type="full" usefile="false"/>
+        </phpcodesniffer>
     </target>
 
     <!-- PHPMD -->
     <target name="phpmd" description="Perform project mess detection using PHPMD">
-        <exec dir="${basedir}" executable="phpmd" output="${logdir}/phpmd.log">
-            <arg line="${appdir}" />
-            <arg line="xml" />
-            <arg line="${basedir}/phpmd-rule.xml" />
-            <arg line="--reportfile ${logdir}/phpmd.xml" />
-            <arg line="--exclude ${appdir}/Plugin,${appdir}/Config/Schema,${appdir}/Config/Migration" />
-            <arg line="--suffixes php,cpt" />
-        </exec>
+        <phpmd rulesets="${basedir}/phpmd-rule.xml">
+            <fileset dir="${appdir}">
+                <include name="**/*.php" />
+                <include name="**/*.cpt" />
+                <exclude name="**/Config/Schema/**" />
+                <exclude name="**/Config/Migration/**" />
+                <exclude name="**/Plugin/**" />
+                <exclude name="**/Vendor/**" />
+                <exclude name="**/webroot/**" />
+            </fileset>
+            <formatter type="xml" outfile="${builddir}/logs/pmd.xml"/>
+        </phpmd>
     </target>
+
     <target name="phpmd-local" description="Perform project mess detection using PHPMD and print human readable output.">
-        <exec dir="${basedir}" executable="phpmd" output="${logdir}/phpmd.log">
-            <arg line="${appdir}" />
-            <arg line="text" />
-            <arg line="${basedir}/phpmd-rule.xml" />
-            <arg line="--exclude ${appdir}/Plugin,${appdir}/Config/Schema,${appdir}/Config/Migration" />
-            <arg line="--suffixes php,cpt" />
-        </exec>
+        <phpmd rulesets="${basedir}/phpmd-rule.xml">
+            <fileset dir="${appdir}">
+                <include name="**/*.php" />
+                <include name="**/*.cpt" />
+                <exclude name="**/Config/Schema/**" />
+                <exclude name="**/Config/Migration/**" />
+                <exclude name="**/Plugin/**" />
+                <exclude name="**/Vendor/**" />
+                <exclude name="**/webroot/**" />
+            </fileset>
+        </phpmd>
     </target>
 
     <!-- PHPCPD -->
     <target name="phpcpd" description="Perform project mess detection using PHPMD">
-        <exec dir="${basedir}" executable="phpcpd" output="${logdir}/phpcpd.log">
-            <arg line="--log-pmd ${logdir}/phpcpd.xml" />
-            <arg line="--exclude Config/Schema" />
-            <arg line="--exclude Config/Migration" />
-            <arg line="--exclude Plugin" />
-            <arg line="--exclude webroot" />
-            <arg line="--names *.php,*.cpt" />
-            <arg line="${appdir}" />
-        </exec>
+        <phpcpd>
+            <fileset dir="${appdir}">
+                <include name="**/*.php" />
+                <include name="**/*.cpt" />
+                <exclude name="**/Config/Schema/**" />
+                <exclude name="**/Config/Migration/**" />
+                <exclude name="**/Plugin/**" />
+                <exclude name="**/Vendor/**" />
+                <exclude name="**/webroot/**" />
+            </fileset>
+            <formatter type="pmd" outfile="${builddir}/logs/pmd-cpd.xml"/>
+        </phpcpd>
     </target>
     <target name="phpcpd-local" description="Perform project mess detection using PHPMD">
-        <exec dir="${basedir}" executable="phpcpd" output="${logdir}/phpcpd.log">
-            <arg line="--exclude Config/Schema" />
-            <arg line="--exclude Config/Migration" />
-            <arg line="--exclude Plugin" />
-            <arg line="--exclude webroot" />
-            <arg line="--names *.php,*.cpt" />
-            <arg line="${appdir}" />
-        </exec>
+        <phpcpd>
+            <fileset dir="${appdir}">
+                <include name="**/*.php" />
+                <include name="**/*.cpt" />
+                <exclude name="**/Config/Schema" />
+                <exclude name="**/Config/Migration/**" />
+                <exclude name="**/Plugin/**" />
+                <exclude name="**/Vendor/**" />
+                <exclude name="**/webroot/**" />
+            </fileset>
+        </phpcpd>
     </target>
 
     <!-- PHPDocumentor -->
     <target name="phpdoc" description="Generate Application Documentation using PHPDocumentor2">
-        <exec dir="${basedir}" executable="phpdoc" output="${logdir}/phpdoc.log">
-            <arg line="run" />
-            <arg line="-t ${basedir}/build/phpdoc" />
-            <arg line="-d ${appdir}" />
-            <arg line="-p" />
-        </exec>
+        <phpdoc title="App API Documentation"
+            destdir="${basedir}/build/api"
+            sourcecode="false"
+            output="HTML:Smarty:PHP">
+            <fileset dir="${appdir}">
+                <include name="**/*.php" />
+                <exclude name="**/Plugin/**" />
+                <exclude name="**/Vendor/**" />
+                <exclude name="**/webroot/**" />
+            </fileset>
+        </phpdoc>
     </target>
 
 </project>
